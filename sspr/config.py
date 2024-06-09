@@ -22,7 +22,7 @@ class Config(pydantic.BaseModel):
     github_token: str = ''
     github_event_name: str = ''
     github_event_path: str = ''
-    verbosity_level: str = 'INFO'
+    log_level: str = 'INFO'
     max_model_tokens: int = 4096
 
     def model_post_init(self, __context: Any):

@@ -30,7 +30,8 @@ def get_llm_call_options() -> Dict[str, str]:
 
 def parse_response(response: str) -> str:
     """Parses the response from the LLM API."""
-    response = response.split('<review>')[1].split('</review>')[0]
+    if '<review>' in response:
+        response = response.split('<review>')[1].split('</review>')[0]
     try:
         return mdformat.text(response)
     except Exception as e:
@@ -52,11 +53,13 @@ def get_review(diff: str) -> str:
             stream=True,
             **get_llm_call_options()
         )
+        text_response = ''
         for message in response:
-            print(message)
-    #         text_response = message['choices'][0]['message']['content']
-    #     logger.info(f"Raw response: {text_response}")
-    #     return parse_response(text_response)
+            if message.choices[0].finish_reason is not None:
+                break
+            text_response += message.choices[0].delta.content
+        logger.info(f"Raw response: {text_response}")
+        return parse_response(text_response)
     except Exception as e:
         logger.error(f"Error in LLM call: {e}")
         raise e

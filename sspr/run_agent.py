@@ -7,6 +7,7 @@ from loguru import logger
 from sspr import agent
 from sspr import config
 from sspr import git
+from sspr import utils
 
 
 def run_from_file(diff_file: str, output_path: Optional[str] = None):
@@ -29,7 +30,7 @@ def run_from_github():
 
 def run(diff_file: Optional[str] = None, output_path: Optional[str] = None):
     global_config = config.get_config()
-    logger.level(global_config.verbosity_level)
+    utils.set_global_log_level(global_config.log_level)
 
     logger.info(f"Running Super-Simple-PR")
     logger.info(f"Config:\n{pprint.pformat(global_config.model_dump())}")
