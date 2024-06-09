@@ -16,7 +16,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-
 testing=[
     "pytest",
 ]
+
+[project.scripts]
+sspr = "sspr.run_agent:run"
