@@ -29,10 +29,7 @@ Code suggestions guidelines:
 - Suggestions should focus on the new code added in the PR diff (lines starting with '+')
 - When quoting variables or names from the code, use backticks (`) instead of single quote (').
 
-The output must start with <review> and end with </review>, and be valid markdown (and nothing else).
-
-Example output:
-<review>
+The output must be valid markdown (and nothing else) and follow the format of the following example:
 
 ### Summary
 What this PR does is...
@@ -47,5 +44,3 @@ What good and less good about this PR is...
 
 * directory/xxx.py, line 123: suggestion or feedback
 * directory/xxx.cs, line 49: suggestion or feedback
-
-</review>

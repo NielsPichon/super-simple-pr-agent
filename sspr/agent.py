@@ -3,7 +3,6 @@ from typing import Dict
 
 from loguru import logger
 import litellm
-import mdformat
 
 from sspr import config
 from sspr import prompt
@@ -24,26 +23,13 @@ def get_llm_call_options() -> Dict[str, str]:
             logger.warning('API base URL should probably not end with a '
                            'slash ("/"). Consider removing it if you get '
                            'connection errors')
-
     return options
-
-
-def parse_response(response: str) -> str:
-    """Parses the response from the LLM API."""
-    if '<review>' in response:
-        response = response.split('<review>')[1].split('</review>')[0]
-    try:
-        return mdformat.text(response)
-    except Exception as e:
-        logger.warning("Could not aply markdown formatting. Response might be "
-                       f"invalid markdown: {e}")
-        return response
 
 
 def get_review(diff: str) -> str:
     """Get the review from the diff."""
-    messages = [{"role": "system:", "content": prompt.load_prompt()},
-                {"role": "user:", "content": diff}]
+    messages = [{"role": "system", "content": prompt.load_prompt()},
+                {"role": "user", "content": diff}]
     logger.debug(f"Prompt: {messages}")
 
     try:
@@ -59,7 +45,7 @@ def get_review(diff: str) -> str:
                 break
             text_response += message.choices[0].delta.content
         logger.info(f"Raw response: {text_response}")
-        return parse_response(text_response)
+        return text_response
     except Exception as e:
         logger.error(f"Error in LLM call: {e}")
         raise e
