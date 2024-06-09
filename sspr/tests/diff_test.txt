@@ -1,0 +1,178 @@
+diff --git a/jml/learning/inference/test_model.py b/jml/learning/inference/test_model.py
+index 6639920..9913b0e 100644
+--- a/jml/learning/inference/test_model.py
++++ b/jml/learning/inference/test_model.py
+@@ -11,6 +11,7 @@ from loguru import logger
+ import numpy as np
+ import peft
+ import torch
++from torch import nn
+ from torch.utils import data as torch_data
+ import transformers
+
+@@ -32,11 +33,12 @@ def test_minicpm(data_dir: str,
+         logger.info('Loading test ids from db')
+         test_ids = registry.get_dataset_ids('minicpm',
+                                             purpose=db.DataPurpose.TEST)
+-        breakpoint()
++        test_ids = [str(pathlib.Path(id_).with_suffix('.npy'))
++                    for id_ in test_ids]
+
+     if ckpt_path is None:
+         logger.info('Loading model from registry')
+-        model = registry.load_model('minicpm')
++        model = registry.load_model('minicpm', trust_remote_code=True)
+     else:
+         logger.info('Loading model from checkpoint')
+         model = transformers.AutoModel.from_pretrained(
+@@ -83,13 +85,25 @@ def test_minicpm(data_dir: str,
+     logger.info('Running inference on test set')
+     loss = []
+     with torch.inference_mode():
+-        for batch in tqdm.tqdm(dataloader):
+-            inputs = {k: v.to(model.device) for k, v in batch.items()}
+-            outputs = model(**inputs)
+-            loss.append(outputs.loss.item())
++        for inputs in tqdm.tqdm(dataloader):
++            labels = inputs.pop("labels")
++            vllm_embedding, _ = model.get_vllm_embedding(inputs)
++            outputs = model.llm(
++                inputs_embeds=vllm_embedding,
++                use_cache=False,
++            )
++            loss_fct = nn.CrossEntropyLoss()
++            # note that the source repo does not use any shift here. That is
++            # surprising because then the model isn't causal... If you know
++            # what's going on, please reach out (Niels)
++            logits = outputs.logits.view(
++                -1, model.config.vocab_size).contiguous()
++            labels = labels.view(-1).long().contiguous()
++            labels = labels.to(logits.device)
++            loss.append(loss_fct(logits, labels).detach().cpu().item())
+
+     print(f'mean loss: {np.mean(loss):.3f}, std: {np.std(loss):.3f}, '
+-          f'max: {np.max(loss):.3d}')
++          f'max: {np.max(loss):.3f}')
+
+
+ def test_blip2_2d(data_dir: str,
+@@ -101,20 +115,27 @@ def test_blip2_2d(data_dir: str,
+             "If ckpt_path is provided, test_ids must also be provided")
+
+     if test_ids is None:
+-        test_ids = registry.get_dataset_ids('blip2_2d')
+-        breakpoint()
++        logger.info('Loading test ids from db')
++        test_ids = registry.get_dataset_ids('blip2_2d',
++                                            purpose=db.DataPurpose.TEST)
++        test_ids = [str(pathlib.Path(id_).with_suffix('.npy'))
++                    for id_ in test_ids]
+
+     if ckpt_path is None:
+-        model = registry.load_model('blip2_2d')
++        logger.info('Loading model from registry')
++        model = registry.load_model('blip2_2d', load_in_8bit=True)
+     else:
++        logger.info('Loading model from checkpoint')
+         model = transformers.Blip2ForConditionalGeneration.from_pretrained(
+             "ybelkada/blip2-opt-2.7b-fp16-sharded",
+             load_in_8bit=True, device_map='auto')
+         model = peft.PeftModel.from_pretrained(model, ckpt_path)
+
++    logger.info('Loading tokenizer')
+     tokenizer = transformers.Blip2Processor.from_pretrained(
+         "Salesforce/blip2-opt-2.7b")
+
++    logger.info('Initializing dataset')
+     dataset = blip_loader.BlipLoader(
+         src_dir=data_dir,
+         restrict_ids=test_ids,
+@@ -129,9 +150,11 @@ def test_blip2_2d(data_dir: str,
+         pin_memory=True,
+     )
+
++    logger.info('Running inference on test set')
+     loss = []
++
+     with torch.inference_mode():
+-        for batch in dataloader:
++        for batch in tqdm.tqdm(dataloader):
+             inputs = tokenizer(
+                 images=batch['image'],
+                 text=batch['caption'],
+@@ -140,11 +163,20 @@ def test_blip2_2d(data_dir: str,
+                 truncation=True,
+                 padding='max_length',
+             ).to('cuda:0')
++            inputs['labels'] = inputs['input_ids']
++
++            # replace text input with bos token and then just pads
++            inputs['input_ids'][:, 0] = torch.LongTensor(
++                [[model.config.text_config.bos_token_id]], device='cuda:0')
++            inputs['input_ids'][:, 1:] = 0
++            inputs['attention_mask'][:, 0] = 1
++            inputs['attention_mask'][:, 1:] = 0
++
+             outputs = model(**inputs)
+-            loss.append(outputs.loss.item())
++            loss.append(outputs.loss.detach().cpu().item())
+
+     print(f'mean loss: {np.mean(loss):.3f}, std: {np.std(loss):.3f}, '
+-          f'max: {np.max(loss):.3d}')
++          f'max: {np.max(loss):.3f}')
+
+
+ if __name__ == '__main__':
+diff --git a/jml/learning/loaders/blip_loader.py b/jml/learning/loaders/blip_loader.py
+index aa08431..9b4a50f 100644
+--- a/jml/learning/loaders/blip_loader.py
++++ b/jml/learning/loaders/blip_loader.py
+@@ -35,8 +35,7 @@ class BlipLoader(dataset.Dataset):
+
+         if restrict_ids is not None:
+             restrict_ids = set(restrict_ids)
+-            self._files = [f for f in self._files
+-                           if f.name in restrict_ids]
++            self._files = [f for f in self._files if f.name in restrict_ids]
+
+         self._augmentations = (augmentations if augmentations is not None
+                                else aug.AugmentationPipeline([]))
+diff --git a/jml/learning/registry.py b/jml/learning/registry.py
+index 8a680fc..22b9f24 100644
+--- a/jml/learning/registry.py
++++ b/jml/learning/registry.py
+@@ -47,7 +47,6 @@ def load_model(model_name: str,
+         if model_desc.is_peft:
+             base = model_cls.from_pretrained(
+                 model_desc.src_model,
+-                load_in_8bit=True,
+                 device_map='auto',
+                 **model_kwarg
+             )
+@@ -62,18 +61,16 @@ def load_model(model_name: str,
+
+ def get_dataset_ids(model_name: str, purpose: db.DataPurpose) -> list:
+     with db.DbConnection():
+-        model_desc = db.TrainedModel.select().where(
+-            db.TrainedModel.model_name == model_name).order_by(
+-                db.TrainedModel.upload_date.desc()).first()
+-
+-        query = db.ExtractedConstruct.select().where(
+-            (db.ExtractedConstruct.uid
+-                == db.ExtractedConstructDataPoint.object_id),
+-            (db.ExtractedConstructDataPoint.purpose==purpose),
+-            (db.ExtractedConstructDataPoint.model_id==model_desc.uid)
++        query = (
++            db.RenderView
++            .select()
++            .join(db.RenderedViewDataPoint)
++            .join(db.TrainedModel)
++            .where((db.TrainedModel.model_name == model_name),
++                   (db.RenderedViewDataPoint.purpose == purpose.value))
+         )
+
+-        return [construct.file_uid for construct in query]
++        return [construct.image_name for construct in query]
+
+ def load_model_checkpoint(model_name: str,
+                           refresh_cache: bool = False) -> pathlib.Path:
