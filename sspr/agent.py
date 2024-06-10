@@ -17,6 +17,8 @@ def get_llm_call_options() -> Dict[str, str]:
     }
     if global_config.provider == 'openai':
         os.environ["OPENAI_API_KEY"] = global_config.api_key
+    if global_config.provider == config.Provider.MISTRAL:
+        os.environ["MISTRAL_API_KEY"] = global_config.api_key
     if global_config.provider == 'ollama':
         options['api_base'] = global_config.api_base_url
         if global_config.api_base_url.endswith('/'):

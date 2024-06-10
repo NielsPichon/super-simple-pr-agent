@@ -10,6 +10,7 @@ class Provider(str, enum.Enum):
     """Possible LLM providers."""
     OPENAI = 'openai'
     OLLAMA = 'ollama'
+    MISTRAL = 'mistral'
 
 
 class Config(pydantic.BaseModel):

@@ -35,12 +35,15 @@ The output must be valid markdown (and nothing else) and follow the format of th
 What this PR does is...
 
 * estimated effort to review: 3/5, because ...
-* relevant_tests: No
-* possible_issues: No
-* security_concerns: Yes
+* relevant tests: No
+* possible issues: No
+* security concerns: Yes
 
 ### Code feedback
-What good and less good about this PR is...
 
+**General feedback**:
+...
+
+***Detailed feedback**:
 * directory/xxx.py, line 123: suggestion or feedback
 * directory/xxx.cs, line 49: suggestion or feedback
